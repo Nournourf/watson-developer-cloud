@@ -1,15 +1,19 @@
 ---
 declared-services:
-  my-conversation-service:
+  Conversation:
     label: conversation
     plan: free
+  weather-company-data:
+    label: weather
+    plan: free
 applications:
-- name: conversation-simple
+- name: conv-201-nbm-weather
   command: npm start
   path: .
-  memory: 256M
+  memory: 512M
   instances: 1
   services:
-  - my-conversation-service
+  - Conversation
+  - weather-company-data
   env:
     NPM_CONFIG_PRODUCTION: false

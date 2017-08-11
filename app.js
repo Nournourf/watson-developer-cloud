@@ -32,8 +32,9 @@ var conversation = new Conversation({
   // After that, the SDK will fall back to the bluemix-provided VCAP_SERVICES environment property
   // username: '<username>',
   // password: '<password>',
-  // url: 'https://gateway.watsonplatform.net/conversation/api',
-  version_date: Conversation.VERSION_DATE_2017_04_21
+  url: 'https://gateway.watsonplatform.net/conversation/api',
+  version_date: '2016-10-21',
+  version: 'v1'
 });
 
 // Endpoint to be call from the client side
@@ -57,7 +58,9 @@ app.post('/api/message', function(req, res) {
     if (err) {
       return res.status(err.code || 500).json(err);
     }
-    return res.json(updateMessage(payload, data));
+    updateMessage(payload, data, function(response) {
+		return res.json(response);
+	});
   });
 });
 
@@ -65,32 +68,71 @@ app.post('/api/message', function(req, res) {
  * Updates the response text using the intent confidence
  * @param  {Object} input The request to the Conversation service
  * @param  {Object} response The response from the Conversation service
+ * @param  {Object} callback The response from Weather Company Data
  * @return {Object}          The response with the updated message
  */
-function updateMessage(input, response) {
-  var responseText = null;
-  if (!response.output) {
-    response.output = {};
-  } else {
-    return response;
-  }
-  if (response.intents && response.intents[0]) {
-    var intent = response.intents[0];
-    // Depending on the confidence of the response the app can return different messages.
-    // The confidence will vary depending on how well the system is trained. The service will always try to assign
-    // a class/intent to the input. If the confidence is low, then it suggests the service is unsure of the
-    // user's intent . In these cases it is usually best to return a disambiguation message
-    // ('I did not understand your intent, please rephrase your question', etc..)
-    if (intent.confidence >= 0.75) {
-      responseText = 'I understood your intent was ' + intent.intent;
-    } else if (intent.confidence >= 0.5) {
-      responseText = 'I think your intent was ' + intent.intent;
-    } else {
-      responseText = 'I did not understand your intent';
+function updateMessage(input, response, callback) {
+    var responseText = null;
+    if (!response.output) {
+        response.output = {};
+        callback(response);
     }
-  }
-  response.output.text = responseText;
-  return response;
+    // In case the entity is city, then get the location coordinates for the city and call Weather Company Data to get the forecast for this city.
+    else if (response.entities.length > 0 && response.entities[0].entity === 'city') {
+        var location = getLocationCoordinatesForCity(response.entities[0].value);
+        getWeatherForecastForCity(location, function(e, weatherOutput) {
+            response.output.text[0] = weatherOutput;
+            callback(response);
+
+        });
+    } else {
+        callback(response);
+    }
 }
+
+/**
+ * Get the latitude and longitude of city
+ * @param  {Object} city The target city
+ * @return {Object} The latitude and longitude of the city
+ */
+function getLocationCoordinatesForCity(city) {
+    var location = {};
+    if (city === 'Cairo') {
+        location.latitude = '30.0444';
+        location.longitude = '31.2357';
+    } else if (city === 'NYC') {
+        location.latitude = '40.7128';
+        location.longitude = '74.0059';
+    }
+    return location;
+}
+
+
+//Weather Company Endpoint
+var vcap = JSON.parse(process.env.VCAP_SERVICES);
+var weatherCompanyEndpoint = vcap.weatherinsights[0].credentials.url;
+var request = require('request'); // request module
+/**
+ * Get the weather forecast for a city through calling Weather Company Data
+ * @param  {Object} city The target city
+ * @return {Object} Weather Forecast for the specified city.
+ */
+function getWeatherForecastForCity(location, callback) {
+    var options = {
+        url: weatherCompanyEndpoint + '/api/weather/v1/geocode/' + location.latitude + '/' + location.longitude + '/forecast/daily/3day.json'
+    };
+    request(
+        options,
+        function(error, response, body) {
+            try {
+                var json = JSON.parse(body);
+                var weatherOutput = json.forecasts[1].narrative;
+                callback(null, weatherOutput);
+            } catch (e) {
+                callback(e, null);
+            }
+        }
+    );
+};
 
 module.exports = app;
